@@ -98,7 +98,7 @@ func New(o Options) (*Client, error) {
 	c := &Client{
 		url: u, key: key, timeout: o.Timeout, retries: o.Retries, deadline: o.Deadline,
 		defaults: o.Defaults, skipCheck: o.SkipValidation, backoff: o.Backoff,
-		userAgent: "honk-go/" + Version,
+		userAgent: "honk-me-go/" + Version,
 	}
 	if o.UserAgent != "" {
 		c.userAgent += " " + o.UserAgent

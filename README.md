@@ -1,8 +1,10 @@
 # honk-go
 
-Official Go client and CLI for [Honk](https://github.com/honk-me/honk), the self-hosted inbox
-that turns events from your apps, scripts, cron jobs and CI into calm, grouped push
-notifications on your phone.
+[![CI](https://github.com/honk-me/honk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-me/honk-go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/honk-me/honk-go.svg)](https://pkg.go.dev/github.com/honk-me/honk-go)
+
+Official Go client and CLI for [Honk](https://honk-me.app), the inbox that turns events from
+your apps, scripts, cron jobs and CI into calm, grouped push notifications on your phone.
 
 - Package `honk`: context-aware, standard library only, safe for concurrent use.
 - CLI `honk-me` for shell scripts, cron and CI (replaces the cURL snippet).
@@ -15,13 +17,21 @@ in source code or client apps.
 ## Install
 
 ```sh
-go get github.com/honk-me/honk-go          # library (Go 1.22+)
+go get github.com/honk-me/honk-go                          # library (Go 1.22+)
 go install github.com/honk-me/honk-go/cmd/honk-me@latest   # CLI
 ```
+
+The CLI is also attached as prebuilt binaries (Linux, macOS, Windows; amd64 and arm64) to
+every [GitHub release](https://github.com/honk-me/honk-go/releases).
+
+Create a project and an ingestion key at [honk-me.app](https://honk-me.app). Its
+*Integrations* page generates ready-to-paste code for the library and the CLI.
 
 ## Quick start
 
 ```go
+import honk "github.com/honk-me/honk-go" // package honk
+
 c, err := honk.FromEnv() // HONK_URL, HONK_KEY (+ optional HONK_SOURCE, HONK_ENVIRONMENT, HONK_CHANNEL)
 if err != nil {
 	log.Fatal(err)
@@ -261,16 +271,22 @@ On success it prints the message ID (or JSON with `--json`). Exit codes:
 
 Add `|| true` where a notification failure must not fail the script.
 
-## Module path
-
-The module path lives in `go.mod`. Go imports must spell it, so `cmd/honk-me`, the examples
-and these docs repeat it; to rename the module run `scripts/rename-module.sh <new/path>`.
-
 ## Development
 
 ```sh
 go test -race ./...                                   # unit tests (httptest) + CLI tests
-HONK_URL=… HONK_KEY=… go test -run Integration ./...  # against a real server, see ../README.md
+HONK_URL=… HONK_KEY=… go test -run Integration ./...  # against a real server (use a test project's key)
 ```
+
+The version lives in `honk.Version` (also the User-Agent and `honk-me version`). Releases: push
+a tag `vX.Y.Z` matching it; the release workflow attaches the CLI binaries and the Go proxy
+serves the module (see `CHANGELOG.md`).
+
+## Links
+
+- [honk-me.app](https://honk-me.app): the Honk inbox (web, iPhone).
+- Other SDKs: [Node.js](https://github.com/honk-me/honk-node),
+  [PHP / Laravel](https://github.com/honk-me/honk-php), [Swift](https://github.com/honk-me/honk-swift),
+  [Kotlin / Java](https://github.com/honk-me/honk-kotlin).
 
 MIT License.

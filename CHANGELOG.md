@@ -4,7 +4,7 @@ All notable changes to the Go module and the `honk-me` CLI are documented here. 
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - 2026-10-03
+## [0.1.0] - 2026-10-04
 
 ### Added
 - Package `honk`: context-aware `Client` for `POST /v1/messages` with every field of the v1

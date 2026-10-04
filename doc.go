@@ -1,5 +1,5 @@
-// Package honk is the official Go client for Honk, a self-hosted inbox that turns events from
-// apps, scripts, cron jobs and CI into calm, grouped push notifications.
+// Package honk is the official Go client for Honk (https://honk-me.app), the inbox that turns
+// events from apps, scripts, cron jobs and CI into calm, grouped push notifications.
 //
 //	c, err := honk.FromEnv() // HONK_URL, HONK_KEY
 //	if err != nil { log.Fatal(err) }

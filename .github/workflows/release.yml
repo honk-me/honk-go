@@ -1,0 +1,94 @@
+# Runs when a tag vX.Y.Z is pushed (the monorepo's sdk-mirror workflow pushes it for a monorepo
+# tag sdk-go-vX.Y.Z). The tag alone publishes the module: the Go proxy and pkg.go.dev serve any
+# tagged version of a public repository. This checks the tag against honk.Version, runs the
+# tests, attaches the honk-me CLI binaries to the GitHub release (GoReleaser, GITHUB_TOKEN only)
+# and asks the proxy for the new version so pkg.go.dev lists it right away.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      module: ${{ steps.v.outputs.module }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: v
+        name: The tag, honk.Version, go.mod and CHANGELOG.md agree
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::tag $GITHUB_REF_NAME is not vX.Y.Z"; exit 1; }
+          actual="$(sed -nE 's/^const Version = "([^"]+)"/\1/p' honk.go)"
+          [ "$actual" = "$v" ] || { echo "::error::honk.go has Version = \"$actual\" but the tag is $GITHUB_REF_NAME"; exit 1; }
+          grep -qF "## [$v]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$v]' section"; exit 1; }
+          module="$(sed -nE 's/^module (.+)$/\1/p' go.mod)"
+          expected="github.com/${GITHUB_REPOSITORY}"
+          [ "${module,,}" = "${expected,,}" ] || { echo "::error::go.mod says module $module but this repository is $expected"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "module=$module" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  goreleaser:
+    needs: [verify, test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          MODULE: ${{ needs.verify.outputs.module }}
+        run: |
+          awk -v h="## [$VERSION]" 'index($0, h) == 1 {f = 1; next} f && /^## \[/ {exit} f' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          # shellcheck disable=SC2016 # the backticks are a literal Markdown code fence
+          printf '\n```sh\ngo get %s@v%s\ngo install %s/cmd/honk-me@v%s\n```\n' "$MODULE" "$VERSION" "$MODULE" "$VERSION" >> "$RUNNER_TEMP/notes.md"
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: '~> v2'
+          args: release --clean --release-notes ${{ runner.temp }}/notes.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  go-proxy:
+    needs: [verify, goreleaser]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - name: Fetch the new version through proxy.golang.org (pkg.go.dev picks it up from there)
+        env:
+          MODULE: ${{ needs.verify.outputs.module }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            GOPROXY=https://proxy.golang.org go list -m "${MODULE}@${TAG}" && exit 0
+            echo "attempt $attempt: not there yet"
+            sleep 20
+          done
+          echo "::warning::the proxy does not list ${MODULE}@${TAG} yet; it will on the first go get"

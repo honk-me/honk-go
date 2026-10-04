@@ -1,0 +1,30 @@
+# Builds the honk-me CLI for the GitHub release (release.yml). Check locally with
+#   goreleaser check && goreleaser release --snapshot --clean
+version: 2
+project_name: honk-me
+
+builds:
+  - id: honk-me
+    main: ./cmd/honk-me
+    binary: honk-me
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files: [LICENSE, README.md, CHANGELOG.md]
+
+checksum:
+  name_template: checksums.txt
+
+# The release notes come from CHANGELOG.md (release.yml passes --release-notes).
+changelog:
+  disable: true

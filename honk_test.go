@@ -143,7 +143,7 @@ func TestSendSerialisesEveryFieldWithOpenAPINames(t *testing.T) {
 	if r.path != "/v1/messages" {
 		t.Fatalf("path %s", r.path)
 	}
-	for k, v := range map[string]string{"Authorization": "Bearer " + testKey, "Content-Type": "application/json", "User-Agent": "honk-go/" + Version} {
+	for k, v := range map[string]string{"Authorization": "Bearer " + testKey, "Content-Type": "application/json", "User-Agent": "honk-me-go/" + Version} {
 		if got := r.header.Get(k); got != v {
 			t.Errorf("%s = %q, want %q", k, got, v)
 		}

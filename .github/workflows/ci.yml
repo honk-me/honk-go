@@ -1,0 +1,55 @@
+# Tests on every push and pull request; release.yml calls it before releasing.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go ${{ matrix.go }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.22', 'stable'] # go.mod: go 1.22
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          [ -z "$unformatted" ] || { echo "::error::not gofmt'ed: $unformatted"; exit 1; }
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+
+  goreleaser:
+    name: goreleaser (snapshot)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: go.mod
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: '~> v2'
+          args: release --snapshot --clean
