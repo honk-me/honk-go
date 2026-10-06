@@ -20,12 +20,14 @@ func TestIntegrationCLI(t *testing.T) {
 
 	code, out, errOut := runCLI(t, env, "", "send", "--title", "CLI "+run, "--message", "from honk-me", "--severity", "success",
 		"--category", "automation", "--meta", "run="+run, "--meta", "n:=3", "--image-url", "https://example.com/i.png",
+		"--action", "Open run=https://example.com/runs/"+run, "--action", "Call on-call=tel:+15550134",
 		"--idempotency-key", key, "--json")
 	if code != exitOK || !strings.Contains(out, `"duplicate":false`) || !strings.Contains(out, `"id":"msg_`) {
 		t.Fatalf("send: %d %q %q", code, out, errOut)
 	}
 	code, out, _ = runCLI(t, env, "", "send", "--title", "CLI "+run, "--message", "from honk-me", "--severity", "success",
 		"--category", "automation", "--meta", "run="+run, "--meta", "n:=3", "--image-url", "https://example.com/i.png",
+		"--action", "Open run=https://example.com/runs/"+run, "--action", "Call on-call=tel:+15550134",
 		"--idempotency-key", key, "--json")
 	if code != exitOK || !strings.Contains(out, `"duplicate":true`) {
 		t.Fatalf("replay: %d %q", code, out)

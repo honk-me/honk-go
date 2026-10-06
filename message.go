@@ -120,6 +120,9 @@ type Message struct {
 	// ImageURL is an https image the server fetches after ingestion (no credentials or
 	// fragment, ≤ 2048 bytes).
 	ImageURL string
+	// Actions are up to 3 buttons, in display order (the first is the primary). Empty means
+	// none.
+	Actions []Action
 	// Metadata has at most 16 keys matching [A-Za-z0-9_.-]{1,64}; values are strings
 	// (≤ 512 characters), numbers or booleans.
 	Metadata map[string]any
@@ -128,6 +131,17 @@ type Message struct {
 	// SourceSequence is a monotonic counter per source stream (0 … 2^53-1) so a delayed
 	// recovery can never close a newer problem. Requires GroupKey. Use honk.Ptr(n).
 	SourceSequence *int64
+}
+
+// Action is a button on a message. Honk never opens or fetches the URL; the app opens it when
+// the user taps the button.
+type Action struct {
+	// Title is 1–40 characters (trimmed), one line, shown as sent: "Reply", "Call Emily".
+	Title string `json:"title"`
+	// URL is https:// (no credentials), mailto: with one address (?subject=…&body=…
+	// percent-encoded, no other keys), tel: or sms: with a number (sms: also ?body=…), at most
+	// 2048 bytes without spaces. Other schemes are refused.
+	URL string `json:"url"`
 }
 
 // Defaults are applied to every message that leaves these fields empty.
@@ -166,6 +180,7 @@ type wireMessage struct {
 	OccurredAt     string         `json:"occurred_at,omitempty"`
 	URL            string         `json:"url,omitempty"`
 	ImageURL       string         `json:"image_url,omitempty"`
+	Actions        []Action       `json:"actions,omitempty"`
 	Metadata       map[string]any `json:"metadata,omitempty"`
 	TTLSeconds     int            `json:"ttl_seconds,omitempty"`
 	SourceSequence *int64         `json:"source_sequence,omitempty"`
@@ -198,7 +213,7 @@ func (m Message) wire() wireMessage {
 		Title: m.Title, Message: m.Message, Severity: m.Severity, Priority: m.Priority,
 		Category: m.Category, Source: m.Source, Environment: m.Environment, Channel: m.Channel,
 		GroupKey: m.GroupKey, EventType: m.EventType, URL: m.URL, ImageURL: m.ImageURL,
-		TTLSeconds: m.TTLSeconds, SourceSequence: m.SourceSequence,
+		Actions: m.Actions, TTLSeconds: m.TTLSeconds, SourceSequence: m.SourceSequence,
 	}
 	if !m.OccurredAt.IsZero() {
 		w.OccurredAt = m.OccurredAt.UTC().Format("2006-01-02T15:04:05.000Z07:00")

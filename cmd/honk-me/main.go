@@ -116,6 +116,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	var (
 		m          honk.Message
 		meta       = metaFlag{}
+		actions    actionFlag
 		occurredAt string
 		seq        int64 = -1
 		key        string
@@ -145,6 +146,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.StringVar(&occurredAt, "occurred-at", "", `when it happened: RFC 3339 timestamp or "now"`)
 	fs.StringVar(&m.URL, "url", "", "https link shown as \"Open link\"")
 	fs.StringVar(&m.ImageURL, "image-url", "", "https image the server fetches and attaches")
+	fs.Var(&actions, "action", "button `TITLE=URL`, e.g. \"Call Emily=tel:+15550134\" (https://, mailto:, tel:, sms:); repeatable, up to 3")
 	fs.Var(meta, "meta", "metadata key=value (string) or key:=value (JSON number/boolean); repeatable")
 	fs.IntVar(&m.TTLSeconds, "ttl", 0, "push lifetime in seconds, 60–86400 (default 3600)")
 	fs.Int64Var(&seq, "source-sequence", -1, "monotonic counter for problem/recovery ordering (needs --group-key)")
@@ -228,6 +230,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	if len(meta) > 0 {
 		m.Metadata = meta
 	}
+	m.Actions = actions
 	if retries == 0 {
 		retries = honk.NoRetries
 	}
@@ -297,6 +300,29 @@ func report(err error) int {
 		return exitTemporary
 	}
 	return exitError
+}
+
+// actionFlag collects --action TITLE=URL, split at the first "=".
+type actionFlag []honk.Action
+
+func (a *actionFlag) String() string {
+	if a == nil {
+		return ""
+	}
+	titles := make([]string, len(*a))
+	for i, x := range *a {
+		titles[i] = x.Title
+	}
+	return strings.Join(titles, ",")
+}
+
+func (a *actionFlag) Set(s string) error {
+	title, url, ok := strings.Cut(s, "=")
+	if !ok {
+		return fmt.Errorf("%q: use TITLE=URL, e.g. \"Call Emily=tel:+15550134\"", s)
+	}
+	*a = append(*a, honk.Action{Title: title, URL: url})
+	return nil
 }
 
 // metaFlag collects --meta key=value (string) and key:=value (JSON scalar).

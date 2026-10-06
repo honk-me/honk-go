@@ -71,6 +71,28 @@ func TestIntegrationAllFieldsAndDuplicate(t *testing.T) {
 	}
 }
 
+func TestIntegrationActionsAndDuplicate(t *testing.T) {
+	c := integrationClient(t)
+	m := honk.Message{
+		Title: "Customer request " + run, Message: "Emily Carter (Acme) asked for a quote: online shop, 40 products",
+		Category: honk.CategoryCustomers, GroupKey: "requests/" + run + "/actions",
+		Actions: []honk.Action{
+			{Title: "Reply", URL: "mailto:emily@example.com?subject=Your%20quote"},
+			{Title: "Call Emily", URL: "tel:+15550134"},
+			{Title: "Open request", URL: "https://example.com/admin/requests/4812"},
+		},
+	}
+	key := "it-" + honk.NewIdempotencyKey()
+	first, err := c.Send(context.Background(), m, honk.WithIdempotencyKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.Send(context.Background(), m, honk.WithIdempotencyKey(key))
+	if err != nil || !again.Duplicate || again.ID != first.ID {
+		t.Fatalf("first %+v again %+v err %v", first, again, err)
+	}
+}
+
 func TestIntegrationConflict(t *testing.T) {
 	c := integrationClient(t)
 	key := "it-" + honk.NewIdempotencyKey()
@@ -152,5 +174,19 @@ func TestIntegrationServerValidation(t *testing.T) {
 	sort.Strings(fields)
 	if strings.Join(fields, ",") != "severity:invalid_enum,ttl_seconds:out_of_range" {
 		t.Fatalf("fields %v", fields)
+	}
+}
+
+func TestIntegrationServerActionValidation(t *testing.T) {
+	c := integrationClient(t, func(o *honk.Options) { o.SkipValidation = true })
+	_, err := c.Send(context.Background(), honk.Message{Message: "x", Actions: []honk.Action{
+		{Title: "Call", URL: "tel:+15550134"}, {Title: "Run", URL: "javascript:alert(1)"},
+	}})
+	var he *honk.Error
+	if !errors.Is(err, honk.ErrValidation) || !errors.As(err, &he) || he.Local || he.Status != 422 {
+		t.Fatalf("err = %v", err)
+	}
+	if len(he.Fields) != 1 || he.Fields[0].Field != "actions[1].url" || he.Fields[0].Code != "invalid_format" {
+		t.Fatalf("fields %+v", he.Fields)
 	}
 }

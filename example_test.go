@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/url"
 	"time"
 
 	honk "github.com/honk-me/honk-go"
@@ -38,6 +39,24 @@ func ExampleClient_Send_customerRequest() {
 			log.Printf("honk: %v", err)
 		}
 	}()
+}
+
+// Buttons on a customer request: reply by email or call back, straight from the notification.
+func ExampleAction() {
+	c, _ := honk.FromEnv()
+	_, err := c.Send(context.Background(), honk.Message{
+		Title:    "New request: online shop quote",
+		Message:  "Emily Carter (Acme) asked for a quote: online shop, 40 products",
+		Category: honk.CategoryCustomers,
+		GroupKey: "requests/4812",
+		Actions: []honk.Action{
+			{Title: "Reply", URL: "mailto:emily@example.com?subject=" + url.PathEscape("Your quote")},
+			{Title: "Call Emily", URL: "tel:+15550134"},
+		},
+	}, honk.WithIdempotencyKey("request-4812"))
+	if err != nil {
+		log.Printf("honk: %v", err)
+	}
 }
 
 func ExampleError() {

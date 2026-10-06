@@ -4,6 +4,15 @@ All notable changes to the Go module and the `honk-me` CLI are documented here. 
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `Message.Actions`: up to 3 buttons (`honk.Action{Title, URL}`) with an `https://`,
+  `mailto:`, `tel:` or `sms:` URL, and `WithActions` for the helpers. Validated locally like
+  the server does, with errors named `actions[1].url`. Empty `Actions` are omitted, so
+  messages without buttons are sent exactly as before.
+- CLI: `--action TITLE=URL` (repeatable), e.g. `--action "Call Emily=tel:+15550134"`.
+
 ## [0.1.0] - 2026-10-04
 
 ### Added

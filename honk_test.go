@@ -195,6 +195,47 @@ func TestMinimalMessageAndDefaults(t *testing.T) {
 	}
 }
 
+func TestActionsAreSentInOrderAndEmptyActionsAreOmitted(t *testing.T) {
+	m := newMock(t, okStep(false))
+	c := client(t, m.URL)
+	ctx := context.Background()
+	reply := Action{Title: "Reply", URL: "mailto:emily@example.com?subject=Your%20quote"}
+	call := Action{Title: "Call Emily", URL: "tel:+15550134"}
+	open := Action{Title: "Open request", URL: "https://shop.example.com/admin/requests/4812"}
+	for _, msg := range []Message{
+		{Message: "Emily asked for a quote", Actions: []Action{reply, call, open}},
+		{Message: "x", Actions: []Action{}},
+		{Message: "x"},
+	} {
+		if _, err := c.Send(ctx, msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := append(make([]Action, 0, 2), reply) // spare capacity: WithActions must not write into it
+	if _, err := c.Loud(ctx, "Disk 91%", "/var on app-01", WithActions(Action{Title: "Text on-call", URL: "sms:+15550134?body=Disk%2091%25"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Send(ctx, Message{Message: "y", Actions: base}, WithActions(call)); err != nil {
+		t.Fatal(err)
+	}
+	r := m.requests()
+	wants := []string{
+		`{"message":"Emily asked for a quote","actions":[{"title":"Reply","url":"mailto:emily@example.com?subject=Your%20quote"},{"title":"Call Emily","url":"tel:+15550134"},{"title":"Open request","url":"https://shop.example.com/admin/requests/4812"}]}`,
+		`{"message":"x"}`,
+		`{"message":"x"}`,
+		`{"title":"Disk 91%","message":"/var on app-01","severity":"warning","actions":[{"title":"Text on-call","url":"sms:+15550134?body=Disk%2091%25"}]}`,
+		`{"message":"y","actions":[{"title":"Reply","url":"mailto:emily@example.com?subject=Your%20quote"},{"title":"Call Emily","url":"tel:+15550134"}]}`,
+	}
+	for i, w := range wants {
+		if string(r[i].body) != w {
+			t.Errorf("request %d\n got %s\nwant %s", i, r[i].body, w)
+		}
+	}
+	if base[:2][1] != (Action{}) {
+		t.Errorf("WithActions wrote into the caller's slice: %+v", base[:2])
+	}
+}
+
 func TestHelpers(t *testing.T) {
 	m := newMock(t, okStep(false))
 	c := client(t, m.URL)

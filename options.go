@@ -45,6 +45,11 @@ func WithURL(u string) Option { return func(c *sendCall) { c.msg.URL = u } }
 // WithImageURL sets an https image the server fetches after ingestion.
 func WithImageURL(u string) Option { return func(c *sendCall) { c.msg.ImageURL = u } }
 
+// WithActions appends buttons to the message (at most 3 in all, in display order).
+func WithActions(actions ...Action) Option {
+	return func(c *sendCall) { c.msg.Actions = append(append([]Action(nil), c.msg.Actions...), actions...) }
+}
+
 // WithMetadata merges keys into the message metadata.
 func WithMetadata(md map[string]any) Option {
 	return func(c *sendCall) {

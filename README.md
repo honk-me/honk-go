@@ -124,6 +124,7 @@ func (c *Client) Send(ctx context.Context, m honk.Message, opts ...honk.Option) 
 | `EventType` | `EventTypeEvent` `EventTypeProblem` `EventTypeRecovery` (recovery needs `GroupKey`) |
 | `OccurredAt` | `time.Time`, sent as UTC RFC 3339 with milliseconds |
 | `URL` / `ImageURL` | `https://` only, no credentials (`ImageURL`: no `#fragment`; fetched by the server afterwards) |
+| `Actions` | `[]honk.Action{{Title, URL}}`, up to 3 buttons, the first is the primary; see below |
 | `Metadata` | `map[string]any`, ≤ 16 keys `[A-Za-z0-9_.-]{1,64}`; string (≤ 512 chars), number or bool values |
 | `TTLSeconds` | push lifetime 60–86400 (0 = default 3600) |
 | `SourceSequence` | `*int64` (`honk.Ptr[int64](n)`), 0 … 2^53-1, needs `GroupKey` |
@@ -133,7 +134,7 @@ that a push was delivered or read. `honk.EncodeMessage(m, defaults)` returns the
 
 Helpers take the core fields plus options (`WithIdempotencyKey`, `WithSeverity`,
 `WithPriority`, `WithCategory`, `WithSource`, `WithEnvironment`, `WithChannel`,
-`WithGroupKey`, `WithOccurredAt`, `WithURL`, `WithImageURL`, `WithMetadata`,
+`WithGroupKey`, `WithOccurredAt`, `WithURL`, `WithImageURL`, `WithActions`, `WithMetadata`,
 `WithTTLSeconds`, `WithSourceSequence`):
 
 ```go
@@ -143,6 +144,35 @@ c.Beep(...); c.Long(...); c.Blast(...)
 c.Problem(ctx, "db/backup", "Backup failed", "pg_dump exited with 1")      // a long honk by default
 c.Recovery(ctx, "db/backup", "Backup OK", "pg_dump finished in 41 s")      // a beep by default
 ```
+
+### Buttons (actions)
+
+Up to three buttons on the message, in display order: reply to the customer, call them, open
+the order.
+
+```go
+_, err := c.Send(ctx, honk.Message{
+	Title:    "New request: online shop quote",
+	Message:  "Emily Carter (Acme) asked for a quote: online shop, 40 products",
+	Category: honk.CategoryCustomers,
+	GroupKey: "requests/4812",
+	Actions: []honk.Action{
+		{Title: "Reply", URL: "mailto:emily@example.com?subject=" + url.PathEscape("Your quote")},
+		{Title: "Call Emily", URL: "tel:+15550134"},
+	},
+})
+```
+
+- `Title`: 1–40 characters, one line, shown as sent.
+- `URL`, at most 2048 bytes without spaces: `https://` (no credentials); `mailto:` with one
+  address and optionally `?subject=…&body=…` (percent-encoded with `url.PathEscape`, no other
+  keys); `tel:` with a number (digits, `-` `.` `(` `)`, `+` only first); `sms:` with a number
+  and optionally `?body=…`. Other schemes are refused.
+- Honk never opens or fetches them; the app does when you tap one. They appear on the
+  message in the app and the web inbox, and on iPhone notifications that show the message
+  text. Errors name the button: `actions[1].url`.
+- Helpers take `honk.WithActions(honk.Action{…}, …)`; the CLI takes
+  `--action "Call Emily=tel:+15550134"`.
 
 ### Options
 
@@ -221,6 +251,7 @@ honk-me problem  --group-key db/backup --title "Backup failed" --message "pg_dum
 honk-me recovery --group-key db/backup --title "Backup OK"     --message "pg_dump finished"
 tail -c 8000 /var/log/backup.log | honk-me send --title "Backup log" --message -   # message from stdin
 honk-me send --message "Front door" --image-url https://cam.example.com/snap.jpg --priority high
+honk-me loud "Disk 91%" "/var on app-01" --action "Open Grafana=https://grafana.example.com/d/disk"
 ```
 
 Cron, alerting only when the job fails:
@@ -252,9 +283,10 @@ Shortcuts `honk-me light|beep|loud|long|blast [TITLE] MESSAGE [flags]` fix the s
 take the text as arguments. `send`, `problem` and `recovery` take flags only:
 `--title`, `--message` (`-` = stdin), `--severity` (horn or canonical name), `--priority`, `--category`,
 `--source`, `--environment`, `--channel`, `--group-key`, `--event-type` (send only),
-`--occurred-at` (RFC 3339 or `now`), `--url`, `--image-url`, `--meta k=v` / `--meta k:=3`
-(repeatable), `--ttl`, `--source-sequence`, `--idempotency-key`, `--timeout`, `--deadline`,
-`--retries`, `--json`, `--quiet`, `--dry-run`. `honk-me send -h` lists them all.
+`--occurred-at` (RFC 3339 or `now`), `--url`, `--image-url`, `--action TITLE=URL` (repeatable,
+up to 3; split at the first `=`), `--meta k=v` / `--meta k:=3` (repeatable), `--ttl`,
+`--source-sequence`, `--idempotency-key`, `--timeout`, `--deadline`, `--retries`, `--json`,
+`--quiet`, `--dry-run`. `honk-me send -h` lists them all.
 
 On success it prints the message ID (or JSON with `--json`). Exit codes:
 

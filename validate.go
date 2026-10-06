@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"slices"
@@ -24,6 +25,8 @@ const (
 	MaxChannel        = 64
 	MaxGroupKey       = 128
 	MaxURLBytes       = 2048
+	MaxActions        = 3
+	MaxActionTitle    = 40
 	MaxMetadataKeys   = 16
 	MaxMetadataString = 512
 	MinTTLSeconds     = 60
@@ -31,7 +34,11 @@ const (
 	maxSafeInteger    = 1<<53 - 1
 )
 
-var metadataKeyRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+var (
+	metadataKeyRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	// The number of a tel: or sms: action: an optional leading +, digits and - . ( ) separators.
+	phoneNumberRe = regexp.MustCompile(`^\+?[0-9().-]*[0-9][0-9().-]*$`)
+)
 
 type fieldErrs []FieldError
 
@@ -123,6 +130,7 @@ func validate(m Message) []FieldError {
 	if m.ImageURL != "" && !validURL(m.ImageURL, true) {
 		f.add("image_url", "invalid_format", "must be an https URL without credentials or fragment, at most 2048 bytes")
 	}
+	checkActions(&f, m.Actions)
 
 	if len(m.Metadata) > MaxMetadataKeys {
 		f.add("metadata", "too_long", fmt.Sprintf("at most %d keys", MaxMetadataKeys))
@@ -147,6 +155,92 @@ func validate(m Message) []FieldError {
 		f.add("ttl_seconds", "out_of_range", fmt.Sprintf("must be between %d and %d", MinTTLSeconds, MaxTTLSeconds))
 	}
 	return f
+}
+
+func checkActions(f *fieldErrs, actions []Action) {
+	if len(actions) > MaxActions {
+		f.add("actions", "too_long", fmt.Sprintf("at most %d actions", MaxActions))
+		return
+	}
+	for i, a := range actions {
+		field := fmt.Sprintf("actions[%d]", i)
+		title, u := strings.TrimSpace(a.Title), strings.TrimSpace(a.URL)
+		switch {
+		case title == "":
+			f.add(field+".title", "required", "title is required")
+		case !utf8.ValidString(title):
+			f.add(field+".title", "invalid_utf8", "must be valid UTF-8")
+		case utf8.RuneCountInString(title) > MaxActionTitle:
+			f.add(field+".title", "too_long", fmt.Sprintf("must be at most %d characters", MaxActionTitle))
+		case hasControl(title, false):
+			f.add(field+".title", "invalid_format", "must be one line without control characters")
+		}
+		switch {
+		case u == "":
+			f.add(field+".url", "required", "url is required")
+		case !utf8.ValidString(u):
+			f.add(field+".url", "invalid_utf8", "must be valid UTF-8")
+		case len(u) > MaxURLBytes:
+			f.add(field+".url", "too_long", fmt.Sprintf("must be at most %d bytes", MaxURLBytes))
+		case !validActionURL(u):
+			f.add(field+".url", "invalid_format", "must be an https://, mailto:, tel: or sms: URL without spaces")
+		}
+	}
+}
+
+// validActionURL is the server's check of a (trimmed) action URL, scheme in any case:
+// https:// with a host and no credentials (as URL), mailto: with one address and an optional
+// ?subject=…&body=…, tel: / tel:// with a number, sms: with a number and an optional ?body=….
+func validActionURL(s string) bool {
+	if strings.IndexFunc(s, unicode.IsSpace) >= 0 || hasControl(s, false) {
+		return false
+	}
+	scheme, rest, ok := strings.Cut(s, ":")
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(scheme) {
+	case "https":
+		return validURL(s, false)
+	case "mailto":
+		addr, query, _ := strings.Cut(rest, "?")
+		return mailAddress(addr) && actionQuery(query, "subject", "body")
+	case "tel":
+		return phoneNumberRe.MatchString(strings.TrimPrefix(rest, "//"))
+	case "sms":
+		number, query, _ := strings.Cut(rest, "?")
+		return phoneNumberRe.MatchString(number) && actionQuery(query, "body")
+	}
+	return false
+}
+
+// mailAddress reports whether the (percent-encoded) address of a mailto: action is a single
+// plain address with a dotted domain.
+func mailAddress(s string) bool {
+	d, err := url.PathUnescape(s)
+	if err != nil || d == "" || strings.ContainsAny(d, ",<>\" ") {
+		return false
+	}
+	a, err := mail.ParseAddress(d)
+	return err == nil && a.Address == d && strings.Contains(d[strings.LastIndexByte(d, '@')+1:], ".")
+}
+
+// actionQuery checks the query of a mailto: or sms: action: valid percent-encoding and only
+// the allowed keys ("" is no query).
+func actionQuery(q string, allowed ...string) bool {
+	if q == "" {
+		return true
+	}
+	v, err := url.ParseQuery(q)
+	if err != nil {
+		return false
+	}
+	for k := range v {
+		if !slices.Contains(allowed, k) {
+			return false
+		}
+	}
+	return true
 }
 
 func checkMetadataValue(v any) string {

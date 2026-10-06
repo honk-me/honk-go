@@ -2,6 +2,7 @@ package honk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -23,6 +24,8 @@ func TestLocalValidation(t *testing.T) {
 	for i := 0; i < 16; i++ {
 		big[fmt.Sprintf("k%d", i)] = strings.Repeat(`"`, 500)
 	}
+	call := Action{Title: "Call", URL: "tel:+15550134"}
+	act := func(title, url string) []Action { return []Action{{Title: title, URL: url}} }
 	cases := []struct {
 		m           Message
 		field, code string
@@ -59,6 +62,31 @@ func TestLocalValidation(t *testing.T) {
 		{Message{Message: "x", TTLSeconds: 59}, "ttl_seconds", "out_of_range"},
 		{Message{Message: "x", TTLSeconds: 86401}, "ttl_seconds", "out_of_range"},
 		{Message{Message: strings.Repeat("x", 8000), Metadata: big}, "body", "too_long"},
+		{Message{Message: "x", Actions: []Action{call, call, call, call}}, "actions", "too_long"},
+		{Message{Message: "x", Actions: act("", "tel:+15550134")}, "actions[0].title", "required"},
+		{Message{Message: "x", Actions: act("  ", "tel:+15550134")}, "actions[0].title", "required"},
+		{Message{Message: "x", Actions: act(strings.Repeat("t", 41), "tel:+15550134")}, "actions[0].title", "too_long"},
+		{Message{Message: "x", Actions: act("Call\nEmily", "tel:+15550134")}, "actions[0].title", "invalid_format"},
+		{Message{Message: "x", Actions: act("bad \xff", "tel:+15550134")}, "actions[0].title", "invalid_utf8"},
+		{Message{Message: "x", Actions: act("Call", "")}, "actions[0].url", "required"},
+		{Message{Message: "x", Actions: act("Open", "https://example.com/"+strings.Repeat("a", 2030))}, "actions[0].url", "too_long"},
+		{Message{Message: "x", Actions: []Action{call, {Title: "Open", URL: "http://example.com"}}}, "actions[1].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Open", "https://user:pw@example.com")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Run", "javascript:alert(1)")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Open", "shop://orders/4812")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:emily?subject=Hi")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:emily@example.com?subject=Your quote")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Call", "tel:call-me")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Call", "tel:+1 555 0134")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Text", "sms:?body=hi")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:emily@localhost")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:emily@example.com,ana@example.com")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:emily@example.com?cc=boss@example.com")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Reply", "mailto:emily@example.com?subject=%zz")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Text", "sms:+15550134?subject=Hi")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Open", "https://example.com/a\u00a0b")}, "actions[0].url", "invalid_format"},
+		{Message{Message: "x", Actions: act("Call", "   ")}, "actions[0].url", "required"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.field+"/"+tc.code, func(t *testing.T) {
@@ -105,6 +133,65 @@ func TestValidEdgeCases(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"occurred_at":"2026-10-02T00:10:00.123Z"`) || !strings.Contains(string(body), `"source_sequence":9007199254740991`) {
 		t.Fatalf("body %s", body)
+	}
+}
+
+func TestValidActions(t *testing.T) {
+	for _, u := range []string{
+		"https://shop.example.com:8443/admin/requests/4812?tab=notes#reply",
+		"HTTPS://shop.example.com",
+		"mailto:emily@example.com",
+		"MailTo:emily.carter+quotes@example.co.uk?subject=Your%20quote&body=Hi%20Emily%2C",
+		"tel:+15550134",
+		"TEL:+1-(555)-013.4",
+		"tel://+40721000000",
+		"sms:+15550134",
+		"SMS:0721000000?body=On%20my%20way",
+		"mailto:%65mily@example.com?body=a+b&subject=",
+		"  tel:+15550134  ",
+	} {
+		body, err := encodeBody(Message{Message: "x", Actions: []Action{{Title: "Open", URL: u}}}, Defaults{}, false)
+		if err != nil {
+			t.Errorf("%s: %v", u, err)
+			continue
+		}
+		var got struct{ Actions []Action }
+		if err := json.Unmarshal(body, &got); err != nil || len(got.Actions) != 1 || got.Actions[0].URL != u {
+			t.Errorf("%s: body %s", u, body)
+		}
+	}
+	title := "  " + strings.Repeat("é", 39) + "🚀  " // 40 characters once trimmed
+	if _, err := encodeBody(Message{Message: "x", Actions: []Action{{Title: title, URL: "tel:+15550134"}}}, Defaults{}, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMoreThanThreeActionsIsOneErrorLikeOnTheServer(t *testing.T) {
+	_, err := encodeBody(Message{Message: "x", Actions: make([]Action, 4)}, Defaults{}, false)
+	he := asError(t, err)
+	if len(he.Fields) != 1 || he.Fields[0].Field != "actions" || he.Fields[0].Code != "too_long" {
+		t.Fatalf("fields %+v", he.Fields)
+	}
+}
+
+func TestAllActionErrorsReportedWithTheirIndex(t *testing.T) {
+	_, err := encodeBody(Message{Message: "x", Actions: []Action{
+		{Title: "Reply", URL: "mailto:emily@example.com"}, {URL: "ftp://files.example.com"}, {Title: "Call"},
+	}}, Defaults{}, false)
+	he := asError(t, err)
+	var got []string
+	for _, f := range he.Fields {
+		got = append(got, f.Field+":"+f.Code)
+	}
+	if strings.Join(got, ",") != "actions[1].title:required,actions[1].url:invalid_format,actions[2].url:required" {
+		t.Fatalf("fields %v", got)
+	}
+}
+
+func TestSkipValidationSendsActionsAsGiven(t *testing.T) {
+	body, err := encodeBody(Message{Message: "x", Actions: []Action{{Title: "Run", URL: "javascript:alert(1)"}}}, Defaults{}, true)
+	if err != nil || string(body) != `{"message":"x","actions":[{"title":"Run","url":"javascript:alert(1)"}]}` {
+		t.Fatalf("body %s err %v", body, err)
 	}
 }
 

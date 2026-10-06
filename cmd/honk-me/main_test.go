@@ -72,6 +72,26 @@ func TestSendPrintsIDAndSerialisesFlags(t *testing.T) {
 	}
 }
 
+func TestActionFlags(t *testing.T) {
+	m := newCLIMock(t, 202, accepted, nil)
+	env := map[string]string{"HONK_URL": m.URL, "HONK_KEY": testKey}
+	code, _, errOut := runCLI(t, env, "", "loud", "New request", "Emily asked for a quote",
+		"--action", "Reply=mailto:emily@example.com?subject=Your%20quote", "--action", "Call Emily=tel:+15550134")
+	if code != exitOK {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	got, _ := json.Marshal(m.bodies[0]["actions"])
+	if want := `[{"title":"Reply","url":"mailto:emily@example.com?subject=Your%20quote"},{"title":"Call Emily","url":"tel:+15550134"}]`; string(got) != want {
+		t.Fatalf("actions\n got %s\nwant %s", got, want)
+	}
+	if code, _, e := runCLI(t, env, "", "send", "--message", "x", "--action", "Run=javascript:alert(1)"); code != exitInvalid || !strings.Contains(e, "actions[0].url") {
+		t.Errorf("invalid action: %d %q", code, e)
+	}
+	if len(m.bodies) != 1 {
+		t.Errorf("an invalid action was sent: %v", m.bodies)
+	}
+}
+
 func TestProblemRecoveryAndStdin(t *testing.T) {
 	m := newCLIMock(t, 202, accepted, nil)
 	env := map[string]string{"HONK_URL": m.URL, "HONK_KEY": testKey, "HONK_IDEMPOTENCY_KEY": "ci-run-7"}
@@ -135,6 +155,7 @@ func TestUsageErrors(t *testing.T) {
 		{[]string{"problem", "--message", "x"}, env, exitUsage, "needs --group-key"},
 		{[]string{"send", "--message", "x", "--occurred-at", "yesterday"}, env, exitUsage, "RFC 3339"},
 		{[]string{"send", "--message", "x", "--meta", "novalue"}, env, exitUsage, "key=value"},
+		{[]string{"send", "--message", "x", "--action", "tel:+15550134"}, env, exitUsage, "TITLE=URL"},
 		{[]string{"send", "--message", "x"}, map[string]string{"HONK_KEY": testKey}, exitUsage, "HONK_URL"},
 		{[]string{"send", "--message", "x"}, map[string]string{"HONK_URL": "https://h"}, exitUsage, "HONK_KEY"},
 		{[]string{"send", "--message", "x", "--severity", "fatal"}, env, exitInvalid, "severity must be one of"},
